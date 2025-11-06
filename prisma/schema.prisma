@@ -21,7 +21,9 @@ model User {
   mobileNumber String   @unique
   password     String
   role         Role     @default(USER) 
+  photo        String?  // URL/path of uploaded photo
   isConfirmed  Boolean  @default(false) // For email confirmation // Can be USER, DRIVER, or ADMIN
+  refreshToken String?
   otp          String?  // store the OTP temporarily
   otpExpiry    DateTime? // OTP expiration time
   createdAt    DateTime @default(now())
@@ -37,7 +39,9 @@ model Driver {
   password        String
   role            Role     @default(DRIVER)
   drivingLicense  String   @unique
+  photo          String?  // URL/path of uploaded photo
   isConfirmed     Boolean  @default(false)
+  refreshToken String?
   otp          String?  // store the OTP temporarily
   otpExpiry    DateTime? // OTP expiration time
   createdAt       DateTime @default(now())

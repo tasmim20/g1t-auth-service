@@ -1,3 +1,7 @@
+/* eslint-disable @typescript-eslint/no-unsafe-enum-comparison */
+/* eslint-disable @typescript-eslint/no-unused-vars */
+/* eslint-disable prettier/prettier */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
@@ -10,10 +14,13 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { LoginDto } from './dto/login.dto';
 import { Role } from './dto/role.enum';
-
+import { Response } from 'express';
 import { RpcException } from '@nestjs/microservices';
 import { EmailService } from './email/email.service';
 
+interface AuthenticatedRequest extends Request {
+  cookies: Record<string, string>;
+}
 @Injectable()
 export class AuthService {
   constructor(
@@ -100,8 +107,12 @@ export class AuthService {
       // ✅ Generate email confirmation token
       const token = this.jwtService.sign(
         { email, type: 'emailConfirmation' },
-        { expiresIn: '1h' }, // token valid for 1 hour
+        {
+          secret: process.env.JWT_ACCESS_SECRET, // or a separate EMAIL_CONFIRM_SECRET
+          expiresIn: '1h',
+        },
       );
+
       console.log('Generated token:', token);
 
       // ✅ Send confirmation email with token
@@ -119,9 +130,45 @@ export class AuthService {
     }
   }
 
+  // async login(loginDto: LoginDto) {
+  //   try {
+  //     const { email, password } = loginDto;
+  //     if (!email || !password)
+  //       throw new RpcException('Email and password are required.');
+
+  //     let user = await this.prisma.user.findUnique({ where: { email } });
+  //     if (!user)
+  //       user = await this.prisma.driver.findUnique({ where: { email } });
+
+  //     if (!user) throw new RpcException('User not found.');
+
+  //     if (!user.isConfirmed) {
+  //       console.error('User tried to login without confirming email:', email);
+  //       return {
+  //         status: 'error',
+  //         message: 'Please confirm your email before logging in.',
+  //       };
+  //     }
+
+  //     const isPasswordValid = await bcrypt.compare(password, user.password);
+  //     if (!isPasswordValid) throw new RpcException('Invalid password.');
+
+  //     const payload = { email: user.email, role: user.role };
+  //     const accessToken = this.jwtService.sign(payload);
+
+  //     return { message: 'Login successful', accessToken, role: user.role };
+  //   } catch (error) {
+  //     console.error('Login Error:', error);
+  //     throw error instanceof RpcException
+  //       ? error
+  //       : new RpcException('Failed to login. Please try again later.');
+  //   }
+  // }
+
   async login(loginDto: LoginDto) {
     try {
       const { email, password } = loginDto;
+
       if (!email || !password)
         throw new RpcException('Email and password are required.');
 
@@ -143,9 +190,43 @@ export class AuthService {
       if (!isPasswordValid) throw new RpcException('Invalid password.');
 
       const payload = { email: user.email, role: user.role };
-      const accessToken = this.jwtService.sign(payload);
 
-      return { message: 'Login successful', accessToken, role: user.role };
+      // Create access and refresh tokens
+      // ✅ Generate tokens
+      const accessToken = this.jwtService.sign(payload, {
+        secret: process.env.JWT_ACCESS_SECRET,
+        expiresIn: '30s',
+      });
+
+      const refreshToken = this.jwtService.sign(payload, {
+        secret: process.env.JWT_REFRESH_SECRET,
+        expiresIn: '7d',
+      });
+
+      // ✅ Hash and store refresh token
+      const hashedRefresh = await bcrypt.hash(refreshToken, 10);
+      await this.prisma.user.update({
+        where: { email: user.email },
+        data: { refreshToken: hashedRefresh },
+      });
+      if (user.role === Role.USER || user.role === Role.ADMIN) {
+        await this.prisma.user.update({
+          where: { email: user.email },
+          data: { refreshToken: hashedRefresh },
+        });
+      } else if (user.role === Role.DRIVER) {
+        await this.prisma.driver.update({
+          where: { email: user.email },
+          data: { refreshToken: hashedRefresh },
+        });
+      }
+      // Return access token to client
+      return {
+        message: 'Login successful',
+        accessToken,
+        refreshToken,
+        role: user.role,
+      };
     } catch (error) {
       console.error('Login Error:', error);
       throw error instanceof RpcException
@@ -154,8 +235,71 @@ export class AuthService {
     }
   }
 
-  logout() {
+  // Refresh Access Token (Using Refresh Token)
+  async refreshToken(refreshToken: string) {
     try {
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+
+      const user = await this.prisma.user.findUnique({
+        where: { email: payload.email },
+      });
+      if (!user || !user.refreshToken)
+        throw new RpcException('Invalid refresh token');
+
+      const isMatch = await bcrypt.compare(refreshToken, user.refreshToken);
+      if (!isMatch) throw new RpcException('Invalid refresh token');
+
+      const newAccessToken = this.jwtService.sign(
+        { email: user.email, role: user.role },
+        {
+          secret: process.env.JWT_ACCESS_SECRET,
+          expiresIn: '1m',
+        },
+      );
+
+      const newRefreshToken = this.jwtService.sign(
+        { email: user.email, role: user.role },
+        {
+          secret: process.env.JWT_REFRESH_SECRET,
+          expiresIn: '7d',
+        },
+      );
+
+      const hashedNewToken = await bcrypt.hash(newRefreshToken, 10);
+      await this.prisma.user.update({
+        where: { email: user.email },
+        data: { refreshToken: hashedNewToken },
+      });
+
+      return { newAccessToken, newRefreshToken };
+    } catch (error) {
+      throw new RpcException('Failed to refresh token');
+    }
+  }
+
+  // logout() {
+  //   try {
+  //     return { message: 'Logout successful' };
+  //   } catch (error) {
+  //     console.error('Logout Error:', error);
+  //     throw new RpcException('Failed to logout. Please try again later.');
+  //   }
+  // }
+  async logout(refreshToken: string) {
+    if (!refreshToken) return { message: 'No refresh token found' };
+
+    try {
+      const payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: process.env.JWT_REFRESH_SECRET,
+      });
+
+      await this.prisma.user.update({
+        where: { email: payload.email },
+        data: { refreshToken: null },
+      });
+
       return { message: 'Logout successful' };
     } catch (error) {
       console.error('Logout Error:', error);
@@ -251,7 +395,7 @@ export class AuthService {
   async confirmRegistration(token: string) {
     try {
       const payload = this.jwtService.verify(token, {
-        secret: process.env.JWT_SECRET,
+        secret: process.env.JWT_ACCESS_SECRET,
       });
 
       if (payload.type !== 'emailConfirmation') {

@@ -26,10 +26,14 @@ export class AuthController {
     return this.authService.login(data);
   }
 
-  // Logout user
+  @MessagePattern({ cmd: 'refresh-token' })
+  async refreshToken(@Payload() data: { refreshToken: string }) {
+    return this.authService.refreshToken(data.refreshToken);
+  }
+
   @MessagePattern({ cmd: 'logout' })
-  logout() {
-    return this.authService.logout();
+  async logout(@Payload() data: { refreshToken: string }) {
+    return this.authService.logout(data.refreshToken);
   }
 
   // Get all users

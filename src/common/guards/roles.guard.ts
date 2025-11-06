@@ -29,6 +29,7 @@ export class RolesGuard implements CanActivate {
       throw new ForbiddenException('User role not found.');
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-argument
     if (!requiredRoles.includes(user.role)) {
       throw new ForbiddenException('Access denied. Insufficient permissions.');
     }
