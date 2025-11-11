@@ -8,52 +8,77 @@ generator client {
 }
 
 enum Role {
-  USER
+  RIDER
   DRIVER
   ADMIN
 }
 
-model User {
-  id           Int      @id @default(autoincrement())
+model Rider {
+  id           Int           @id @default(autoincrement())
   firstName    String
   lastName     String
-  email        String   @unique
-  mobileNumber String   @unique
+  email        String        @unique
+  mobileNumber String        @unique
   password     String
-  role         Role     @default(USER) 
-  photo        String?  // URL/path of uploaded photo
-  isConfirmed  Boolean  @default(false) // For email confirmation // Can be USER, DRIVER, or ADMIN
-  refreshToken String?
-  otp          String?  // store the OTP temporarily
-  otpExpiry    DateTime? // OTP expiration time
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  role         Role          @default(RIDER)
+  isConfirmed  Boolean       @default(false)
+  refreshTokens RefreshToken[]
+  otp          String?
+  otpExpiry    DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  profilePhoto String? 
 }
 
 model Driver {
-  id              Int      @id @default(autoincrement())
-  firstName       String
-  lastName        String
-  email           String   @unique
-  mobileNumber    String   @unique
-  password        String
-  role            Role     @default(DRIVER)
-  drivingLicense  String   @unique
-  photo          String?  // URL/path of uploaded photo
-  isConfirmed     Boolean  @default(false)
-  refreshToken String?
-  otp          String?  // store the OTP temporarily
-  otpExpiry    DateTime? // OTP expiration time
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt   // Add this line
+  id             Int           @id @default(autoincrement())
+  firstName      String
+  lastName       String
+  email          String        @unique
+  mobileNumber   String        @unique
+  password       String
+  role           Role          @default(DRIVER)
+  drivingLicense String        @unique
+  isConfirmed    Boolean       @default(false)
+  refreshTokens RefreshToken[]
+  otp            String?
+  otpExpiry      DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime      @updatedAt
+  profilePhoto String? 
+}
+
+model Admin {
+  id            Int             @id @default(autoincrement())
+  name          String
+  email         String          @unique
+  password      String
+  role          Role            @default(ADMIN)
+  refreshTokens RefreshToken[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  profilePhoto String? 
+}
+model RefreshToken {
+  id         Int       @id @default(autoincrement())
+  token      String    @unique
+  riderId     Int?
+  driverId   Int?
+  adminId    Int?
+  isUsed     Boolean   @default(false)
+  isRevoked  Boolean   @default(false)
+  createdAt  DateTime  @default(now())
+  expiresAt  DateTime
+  rider      Rider?     @relation(fields: [riderId], references: [id])
+  driver     Driver?   @relation(fields: [driverId], references: [id])
+  admin      Admin?    @relation(fields: [adminId], references: [id])
 }
 
 model Otp {
-  id          Int      @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   emailOrPhone String
-  otp         String
-  expiresAt   DateTime
-  isUsed      Boolean  @default(false)
-  createdAt   DateTime @default(now())
+  otp          String
+  expiresAt    DateTime
+  isUsed       Boolean  @default(false)
+  createdAt    DateTime @default(now())
 }
-

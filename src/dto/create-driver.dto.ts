@@ -7,7 +7,7 @@ import {
   IsEnum,
 } from 'class-validator';
 import { Role } from './role.enum'; // Import the Role Enum (if you use one)
-import { CreateUserDto } from './create-user.dto';
+import { CreateRiderDto } from './create-rider.dto';
 
 export class CreateDriverDto {
   @IsString()
@@ -39,7 +39,7 @@ export class CreateDriverDto {
 // In create-driver.dto.ts or in a separate utils file
 
 export function isCreateDriverDto(
-  dto: CreateUserDto | CreateDriverDto,
+  dto: CreateRiderDto | CreateDriverDto,
 ): dto is CreateDriverDto {
   return (dto as CreateDriverDto).drivingLicense !== undefined;
 }

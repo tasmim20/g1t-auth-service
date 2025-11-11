@@ -1,18 +1,21 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { MessagePattern, Payload, RpcException } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
-import { CreateUserDto } from './dto/create-user.dto';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { LoginDto } from './dto/login.dto';
+import { CreateRiderDto } from './dto/create-rider.dto';
+import { Role } from './dto/role.enum';
 
-@Controller()
+@Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   // Register a new user or driver
   @MessagePattern({ cmd: 'register' })
-  async register(@Payload() data: CreateUserDto | CreateDriverDto) {
+  async register(@Payload() data: CreateRiderDto | CreateDriverDto) {
     return this.authService.register(data);
   }
   @MessagePattern({ cmd: 'confirm-registration' })
@@ -26,7 +29,7 @@ export class AuthController {
     return this.authService.login(data);
   }
 
-  @MessagePattern({ cmd: 'refresh-token' })
+  @MessagePattern({ cmd: 'refresh' })
   async refreshToken(@Payload() data: { refreshToken: string }) {
     return this.authService.refreshToken(data.refreshToken);
   }
@@ -35,17 +38,29 @@ export class AuthController {
   async logout(@Payload() data: { refreshToken: string }) {
     return this.authService.logout(data.refreshToken);
   }
+  @MessagePattern({ cmd: 'profile' })
+  async getProfile(@Payload() data: { userId: number; role: Role }) {
+    const { userId, role } = data;
 
-  // Get all users
-  @MessagePattern({ cmd: 'users' })
-  getAllUsers() {
-    return this.authService.getAllUsers();
+    if (!userId || !role) {
+      throw new RpcException('userId and role are required');
+    }
+
+    // Call your service to fetch the profile based on userId and role
+    const profile = await this.authService.getProfile(userId, role);
+    return profile;
+  }
+
+  // Get all riders
+  @MessagePattern({ cmd: 'riders' })
+  getAllRiders() {
+    return this.authService.getAllRiders();
   }
 
   // Get user by email
-  @MessagePattern({ cmd: 'user/email' })
-  getUserByEmail(@Payload() email: string) {
-    return this.authService.getUserByEmail(email);
+  @MessagePattern({ cmd: 'rider/email' })
+  getRiderByEmail(@Payload() email: string) {
+    return this.authService.getRiderByEmail(email);
   }
 
   // Get all drivers
