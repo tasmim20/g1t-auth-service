@@ -26,3 +26,34 @@ export interface AuthenticatedUserSafe {
   drivingLicense?: string;
   name?: string; // for admin
 }
+// types/refresh-token.type.ts
+export interface RefreshToken {
+  id: number;
+  token: string;
+  riderId: number | null;
+  driverId: number | null;
+  adminId: number | null;
+  isUsed: boolean;
+  isRevoked: boolean;
+  createdAt: Date;
+  expiresAt: Date;
+
+  // Optional relations
+  rider?: {
+    id: number;
+    email: string;
+    // add other Rider fields if needed
+  } | null;
+
+  driver?: {
+    id: number;
+    email: string;
+    // add other Driver fields if needed
+  } | null;
+
+  admin?: {
+    id: number;
+    email: string;
+    // add other Admin fields if needed
+  } | null;
+}

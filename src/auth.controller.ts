@@ -2,12 +2,12 @@
 /* eslint-disable @typescript-eslint/no-unsafe-return */
 /* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload, RpcException } from '@nestjs/microservices';
+import { MessagePattern, Payload } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { LoginDto } from './dto/login.dto';
 import { CreateRiderDto } from './dto/create-rider.dto';
-import { Role } from './dto/role.enum';
+// import { Role } from './dto/role.enum';
 
 @Controller('auth')
 export class AuthController {
@@ -38,55 +38,56 @@ export class AuthController {
   async logout(@Payload() data: { refreshToken: string }) {
     return this.authService.logout(data.refreshToken);
   }
-  @MessagePattern({ cmd: 'profile' })
-  async getProfile(@Payload() data: { userId: number; role: Role }) {
-    const { userId, role } = data;
 
-    if (!userId || !role) {
-      throw new RpcException('userId and role are required');
-    }
+  // @MessagePattern({ cmd: 'profile' })
+  // async getProfile(@Payload() data: { userId: number; role: Role }) {
+  //   const { userId, role } = data;
 
-    // Call your service to fetch the profile based on userId and role
-    const profile = await this.authService.getProfile(userId, role);
-    return profile;
-  }
+  //   if (!userId || !role) {
+  //     throw new RpcException('userId and role are required');
+  //   }
 
-  // Get all riders
-  @MessagePattern({ cmd: 'riders' })
-  getAllRiders() {
-    return this.authService.getAllRiders();
-  }
+  //   // Call your service to fetch the profile based on userId and role
+  //   const profile = await this.authService.getProfile(userId, role);
+  //   return profile;
+  // }
 
-  // Get user by email
-  @MessagePattern({ cmd: 'rider/email' })
-  getRiderByEmail(@Payload() email: string) {
-    return this.authService.getRiderByEmail(email);
-  }
+  // // Get all riders
+  // @MessagePattern({ cmd: 'riders' })
+  // getAllRiders() {
+  //   return this.authService.getAllRiders();
+  // }
 
-  // Get all drivers
-  @MessagePattern({ cmd: 'drivers' })
-  getAllDrivers() {
-    return this.authService.getAllDrivers();
-  }
+  // // Get user by email
+  // @MessagePattern({ cmd: 'rider/email' })
+  // getRiderByEmail(@Payload() email: string) {
+  //   return this.authService.getRiderByEmail(email);
+  // }
 
-  // Get driver by email
-  @MessagePattern({ cmd: 'driver/email' })
-  getDriverByEmail(@Payload() email: string) {
-    return this.authService.getDriverByEmail(email);
-  }
-  @MessagePattern({ cmd: 'forgot-password' })
-  forgotPassword(@Payload() email: string) {
-    return this.authService.forgotPassword(email);
-  }
+  // // Get all drivers
+  // @MessagePattern({ cmd: 'drivers' })
+  // getAllDrivers() {
+  //   return this.authService.getAllDrivers();
+  // }
 
-  @MessagePattern({ cmd: 'reset-password' })
-  resetPassword(
-    @Payload() body: { email: string; otp: string; newPassword: string },
-  ) {
-    return this.authService.resetPassword(
-      body.email,
-      body.otp,
-      body.newPassword,
-    );
-  }
+  // // Get driver by email
+  // @MessagePattern({ cmd: 'driver/email' })
+  // getDriverByEmail(@Payload() email: string) {
+  //   return this.authService.getDriverByEmail(email);
+  // }
+  // @MessagePattern({ cmd: 'forgot-password' })
+  // forgotPassword(@Payload() email: string) {
+  //   return this.authService.forgotPassword(email);
+  // }
+
+  // @MessagePattern({ cmd: 'reset-password' })
+  // resetPassword(
+  //   @Payload() body: { email: string; otp: string; newPassword: string },
+  // ) {
+  //   return this.authService.resetPassword(
+  //     body.email,
+  //     body.otp,
+  //     body.newPassword,
+  //   );
+  // }
 }
