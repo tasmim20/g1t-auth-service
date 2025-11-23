@@ -1,0 +1,49 @@
+syntax = "proto3";
+
+package user;
+
+
+service UserService {
+  rpc CreateProfile (CreateProfileRequest) returns (CreateProfileResponse);
+  rpc GetProfile (GetProfileRequest) returns (GetProfileResponse);
+}
+
+// Request to create a profile
+message CreateProfileRequest {
+  int32 userId      = 1;
+  string email      = 2;
+  string role       = 3;  // "RIDER" | "DRIVER" | "ADMIN"
+  string firstName  = 4;
+  string lastName   = 5;
+  string profilePhoto = 6;
+  string bio        = 7;
+  string address    = 8;
+}
+
+
+// Response to create a profile
+message CreateProfileResponse {
+  bool success    = 1;
+  string message  = 2;
+  int32 profileId = 3;
+}
+// Request to get a profile
+message GetProfileRequest {
+  int32 userId = 1;   
+  string role  = 2; 
+
+}
+
+// Response to get a profile
+// Get profile response
+message GetProfileResponse {
+  int32 profileId   = 1;
+  int32 userId      = 2;
+  string email      = 3;
+  string firstName  = 4;
+  string lastName   = 5;
+  string profilePhoto = 6;
+  string bio        = 7;
+  string address    = 8;
+  string role       = 9;
+}

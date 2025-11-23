@@ -8,7 +8,7 @@
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from './prisma.service';
@@ -16,24 +16,47 @@ import * as argon2 from 'argon2';
 import { CreateDriverDto } from './dto/create-driver.dto';
 import { LoginDto } from './dto/login.dto';
 import { Role } from './dto/role.enum';
-import { ClientProxy, RpcException } from '@nestjs/microservices';
+import { RpcException } from '@nestjs/microservices';
+import type { ClientGrpc } from '@nestjs/microservices';
+import { firstValueFrom, Observable } from 'rxjs';
 import { EmailService } from './email/email.service';
 import { CreateRiderDto } from './dto/create-rider.dto';
 import { RefreshToken } from './common/user.interface';
+import { parseExpiration } from './common/utils/parse-expiration';
 
 interface AuthenticatedRequest extends Request {
   cookies: Record<string, string>;
 }
+interface UserService {
+  createProfile(data: {
+    userId: number;
+    email: string;
+    role: string; // 'RIDER' | 'DRIVER' | 'ADMIN'
+    firstName: string;
+    lastName: string;
+    profilePhoto?: string;
+    bio?: string;
+    address?: string;
+  }): Observable<{ success: boolean; message: string; profileId: number }>;
+}
 @Injectable()
 export class AuthService {
+  private userService: UserService;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly emailService: EmailService,
-
-    //inject user microservice
-    @Inject('USER_SERVICE') private readonly userClient: ClientProxy,
+    @Inject('USER_SERVICE') private readonly userClient: ClientGrpc,
   ) {}
+  onModuleInit() {
+    try {
+      this.userService = this.userClient.getService<UserService>('UserService');
+      console.log('AuthService: userService initialized');
+    } catch (err) {
+      console.error('AuthService.onModuleInit error:', err);
+    }
+  }
 
   async register(createUserDto: CreateRiderDto | CreateDriverDto) {
     try {
@@ -110,7 +133,8 @@ export class AuthService {
           data: {
             email,
             password: hashedPassword,
-            name: `${firstName} ${lastName}`, // Admin model has 'name' instead of firstName/lastName
+            firstName,
+            lastName, // Admin model has 'name' instead of firstName/lastName
             role,
           },
         });
@@ -125,7 +149,7 @@ export class AuthService {
         { email, type: 'emailConfirmation' },
         {
           secret: process.env.JWT_ACCESS_SECRET,
-          expiresIn: '1h',
+          expiresIn: process.env.JWT_EMAIL_CONFIRMATION_EXPIRATION as any,
         },
       );
 
@@ -185,12 +209,18 @@ export class AuthService {
       // Generate access and refresh tokens
       const accessToken = this.jwtService.sign(
         { email: user.email, role: user.role, id: user.id },
-        { secret: process.env.JWT_ACCESS_SECRET, expiresIn: '1m' },
+        {
+          secret: process.env.JWT_ACCESS_SECRET,
+          expiresIn: parseExpiration(process.env.JWT_ACCESS_EXPIRATION),
+        },
       );
 
       const refreshToken = this.jwtService.sign(
         { email: user.email, role: user.role, id: user.id, type: 'refresh' },
-        { secret: process.env.JWT_REFRESH_SECRET, expiresIn: '7d' },
+        {
+          secret: process.env.JWT_REFRESH_SECRET,
+          expiresIn: parseExpiration(process.env.JWT_REFRESH_EXPIRATION),
+        },
       );
       // ---- Hash the refresh token before storing ----
       const hashedRefreshToken = await argon2.hash(refreshToken);
@@ -289,7 +319,7 @@ export class AuthService {
       },
       {
         secret: process.env.JWT_ACCESS_SECRET,
-        expiresIn: '1m',
+        expiresIn: parseExpiration(process.env.JWT_ACCESS_EXPIRATION),
       },
     );
 
@@ -303,7 +333,7 @@ export class AuthService {
       },
       {
         secret: process.env.JWT_REFRESH_SECRET,
-        expiresIn: '7d',
+        expiresIn: parseExpiration(process.env.JWT_REFRESH_EXPIRATION),
       },
     );
 
@@ -422,6 +452,54 @@ export class AuthService {
       if (!updatedAccount) {
         throw new RpcException('Account not found.');
       }
+      // Notify User-Service to create the profile
+      // ✅ Call gRPC properly
+      // ---------- gRPC: CreateProfile ----------
+      console.log(
+        'AuthService.confirmRegistration updatedAccount:',
+        updatedAccount,
+      );
+
+      // ---- gRPC call to User-Service ----
+      // Defensive check: ensure userService is ready
+      if (!this.userService) {
+        console.error(
+          'AuthService.confirmRegistration: userService is NOT initialized',
+        );
+      } else {
+        try {
+          console.log('AuthService: calling userService.createProfile with', {
+            userId: updatedAccount.id,
+            email: updatedAccount.email,
+            role: updatedAccount.role,
+            firstName: updatedAccount.firstName ?? updatedAccount.name ?? '',
+            lastName: updatedAccount.lastName ?? '',
+          });
+
+          const payload = {
+            userId: Number(updatedAccount.id),
+            email: updatedAccount.email ?? '',
+            role: updatedAccount.role ?? 'RIDER',
+            firstName: updatedAccount.firstName ?? updatedAccount.name ?? '',
+            lastName: updatedAccount.lastName ?? '',
+            profilePhoto: updatedAccount.profilePhoto ?? '',
+            bio: updatedAccount.bio ?? '',
+            address: updatedAccount.address ?? '',
+          };
+
+          const result = await firstValueFrom(
+            this.userService.createProfile(payload),
+            { defaultValue: null }, // avoid unhandled promise if not emit
+          );
+
+          console.log('AuthService: createProfile result:', result);
+        } catch (err) {
+          console.error(
+            'AuthService: createProfile gRPC error (stack):',
+            err?.stack ?? err,
+          );
+        }
+      }
 
       return { message: 'Email successfully confirmed. You can now log in.' };
     } catch (error) {
@@ -430,260 +508,90 @@ export class AuthService {
     }
   }
 
-  async getUserProfile(userId: number, role: Role) {
-    return this.userClient
-      .send('get-profile', { userId, role }) // <--- RPC call to user-service
-      .toPromise(); // convert Observable to Promise
+  // Forgot Password: Generate OTP and send to user's email
+  async forgotPassword(email: string) {
+    try {
+      // Find the account (Rider, Driver)
+      const account =
+        (await this.prisma.rider.findUnique({ where: { email } })) ||
+        (await this.prisma.driver.findUnique({ where: { email } }));
+
+      if (!account) throw new RpcException('Account not found.');
+
+      // Determine the type (Rider or Driver)
+      const type: 'RIDER' | 'DRIVER' =
+        account.role === 'DRIVER' ? 'DRIVER' : 'RIDER';
+
+      // Generate 6-digit OTP
+      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      console.log(`✅ OTP for ${email}: ${otp}`);
+
+      // OTP expiry: 10 minutes from now
+      const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
+
+      // Save OTP and expiry in DB
+      if (type === 'RIDER') {
+        await this.prisma.rider.update({
+          where: { email },
+          data: { otp, otpExpiry },
+        });
+      } else {
+        await this.prisma.driver.update({
+          where: { email },
+          data: { otp, otpExpiry },
+        });
+      }
+
+      // Send OTP email
+      await this.emailService.sendOTPEmail(email, otp);
+
+      return { message: 'OTP sent to your email. It is valid for 10 minutes.' };
+    } catch (error) {
+      console.error('Forgot Password Error:', error);
+      throw new RpcException('Failed to process forgot password.');
+    }
   }
-  // /** Get all users */
-  // async getAllRiders() {
-  //   try {
-  //     return await this.prisma.rider.findMany({
-  //       select: {
-  //         id: true,
-  //         email: true,
-  //         firstName: true,
-  //         lastName: true,
-  //         mobileNumber: true,
-  //         role: true,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     console.error('Get All Users Error:', error);
-  //     throw new RpcException('Failed to fetch users.');
-  //   }
-  // }
 
-  // /** Get user by email */
-  // async getRiderByEmail(email: string) {
-  //   try {
-  //     const rider = await this.prisma.rider.findUnique({
-  //       where: { email },
-  //       select: {
-  //         id: true,
-  //         email: true,
-  //         firstName: true,
-  //         lastName: true,
-  //         mobileNumber: true,
-  //         role: true,
-  //       },
-  //     });
-  //     if (!rider) throw new RpcException('User not found.');
-  //     return rider;
-  //   } catch (error) {
-  //     console.error('Get User By Email Error:', error);
-  //     throw new RpcException('Failed to fetch user.');
-  //   }
-  // }
+  // Reset Password: Validate OTP and set new password
+  async resetPassword(email: string, otp: string, newPassword: string) {
+    try {
+      // Find the account (Rider, Driver)
+      const account =
+        (await this.prisma.rider.findUnique({ where: { email } })) ||
+        (await this.prisma.driver.findUnique({ where: { email } }));
 
-  // /** Get all drivers */
-  // async getAllDrivers() {
-  //   try {
-  //     return await this.prisma.driver.findMany({
-  //       select: {
-  //         id: true,
-  //         email: true,
-  //         firstName: true,
-  //         lastName: true,
-  //         mobileNumber: true,
-  //         role: true,
-  //         drivingLicense: true,
-  //       },
-  //     });
-  //   } catch (error) {
-  //     console.error('Get All Drivers Error:', error);
-  //     throw new RpcException('Failed to fetch drivers.');
-  //   }
-  // }
+      if (!account) throw new RpcException('Account not found.');
 
-  // /** Get driver by email */
-  // async getDriverByEmail(email: string) {
-  //   try {
-  //     const driver = await this.prisma.driver.findUnique({
-  //       where: { email },
-  //       select: {
-  //         id: true,
-  //         email: true,
-  //         firstName: true,
-  //         lastName: true,
-  //         mobileNumber: true,
-  //         role: true,
-  //         drivingLicense: true,
-  //       },
-  //     });
-  //     if (!driver) throw new RpcException('Driver not found.');
-  //     return driver;
-  //   } catch (error) {
-  //     console.error('Get Driver By Email Error:', error);
-  //     throw new RpcException('Failed to fetch driver.');
-  //   }
-  // }
+      // Determine type (Rider or Driver)
+      const type: 'RIDER' | 'DRIVER' =
+        account.role === 'DRIVER' ? 'DRIVER' : 'RIDER';
 
-  // async getProfile(userId: number, role: Role) {
-  //   try {
-  //     // Validate the role to ensure it's one of the allowed roles
-  //     if (![Role.RIDER, Role.DRIVER, Role.ADMIN].includes(role)) {
-  //       throw new RpcException('Invalid role provided.');
-  //     }
+      // Validate OTP
+      if (account.otp !== otp) throw new RpcException('Invalid OTP.');
+      if (!account.otpExpiry || new Date(account.otpExpiry) < new Date()) {
+        throw new RpcException('OTP has expired.');
+      }
 
-  //     // Common fields for all roles
-  //     const selectFields = {
-  //       id: true,
-  //       email: true,
-  //       role: true,
-  //       isConfirmed: true,
-  //       firstName: true,
-  //       lastName: true,
-  //       mobileNumber: true,
-  //       profilePhoto: true, // optional field for profile photo
-  //     };
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
 
-  //     let user;
-  //     switch (role) {
-  //       case Role.RIDER:
-  //         user = await this.prisma.rider.findUnique({
-  //           where: { id: userId },
-  //           select: selectFields,
-  //         });
-  //         if (!user)
-  //           throw new RpcException(`Rider with ID ${userId} not found.`);
-  //         break;
+      // Update password and clear OTP
+      if (type === 'RIDER') {
+        await this.prisma.rider.update({
+          where: { email },
+          data: { password: hashedPassword, otp: null, otpExpiry: null },
+        });
+      } else {
+        await this.prisma.driver.update({
+          where: { email },
+          data: { password: hashedPassword, otp: null, otpExpiry: null },
+        });
+      }
 
-  //       case Role.DRIVER:
-  //         user = await this.prisma.driver.findUnique({
-  //           where: { id: userId },
-  //           select: {
-  //             ...selectFields,
-  //             drivingLicense: true, // Driver-specific field
-  //           },
-  //         });
-  //         if (!user)
-  //           throw new RpcException(`Driver with ID ${userId} not found.`);
-  //         break;
-
-  //       case Role.ADMIN:
-  //         user = await this.prisma.admin.findUnique({
-  //           where: { id: userId },
-  //           select: {
-  //             ...selectFields,
-  //             name: true, // Admin uses 'name' instead of firstName/lastName
-  //           },
-  //         });
-  //         if (!user)
-  //           throw new RpcException(`Admin with ID ${userId} not found.`);
-  //         break;
-
-  //       default:
-  //         throw new RpcException('Invalid role provided.');
-  //     }
-
-  //     return user; // Return the user profile data
-  //   } catch (error) {
-  //     console.error('Get Profile Error:', error);
-  //     throw new RpcException(error.message || 'Failed to fetch profile.');
-  //   }
-  // }
-
-  // /** Get admin */
-  // async getAdmin() {
-  //   try {
-  //     const admin = await this.prisma.admin.findFirst({
-  //       select: {
-  //         id: true,
-  //         name: true,
-  //         email: true,
-  //         role: true,
-  //       },
-  //     });
-  //     if (!admin) throw new RpcException('Admin not found.');
-  //     return admin;
-  //   } catch (error) {
-  //     console.error('Get Admin Error:', error);
-  //     throw new RpcException('Failed to fetch admin.');
-  //   }
-  // }
-
-  // async forgotPassword(email: string) {
-  //   try {
-  //     // Find the account (Rider, Driver, or Admin if needed)
-  //     const account =
-  //       (await this.prisma.rider.findUnique({ where: { email } })) ||
-  //       (await this.prisma.driver.findUnique({ where: { email } }));
-
-  //     if (!account) throw new RpcException('Account not found.');
-
-  //     // Determine the type
-  //     const type: 'RIDER' | 'DRIVER' =
-  //       account.role === 'DRIVER' ? 'DRIVER' : 'RIDER';
-
-  //     // Generate 6-digit OTP
-  //     const otp = Math.floor(100000 + Math.random() * 900000).toString();
-  //     console.log(`✅ OTP for ${email}: ${otp}`);
-
-  //     // OTP expiry 10 minutes from now
-  //     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000);
-
-  //     // Save OTP and expiry in DB
-  //     if (type === 'RIDER') {
-  //       await this.prisma.rider.update({
-  //         where: { email },
-  //         data: { otp, otpExpiry },
-  //       });
-  //     } else {
-  //       await this.prisma.driver.update({
-  //         where: { email },
-  //         data: { otp, otpExpiry },
-  //       });
-  //     }
-
-  //     // Send OTP email
-  //     await this.emailService.sendOTPEmail(email, otp);
-
-  //     return { message: 'OTP sent to your email. It is valid for 10 minutes.' };
-  //   } catch (error) {
-  //     console.error('Forgot Password Error:', error);
-  //     throw new RpcException('Failed to process forgot password.');
-  //   }
-  // }
-  // async resetPassword(email: string, otp: string, newPassword: string) {
-  //   try {
-  //     // Find the account (Rider or Driver)
-  //     const account =
-  //       (await this.prisma.rider.findUnique({ where: { email } })) ||
-  //       (await this.prisma.driver.findUnique({ where: { email } }));
-
-  //     if (!account) throw new RpcException('Account not found.');
-
-  //     // Determine type
-  //     const type: 'RIDER' | 'DRIVER' =
-  //       account.role === 'DRIVER' ? 'DRIVER' : 'RIDER';
-
-  //     // Validate OTP
-  //     // Validate OTP
-  //     if (account.otp !== otp) throw new RpcException('Invalid OTP.');
-  //     if (!account.otpExpiry || new Date(account.otpExpiry) < new Date())
-  //       throw new RpcException('OTP has expired.');
-
-  //     // Hash new password
-  //     const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-  //     // Update password and clear OTP
-  //     if (type === 'RIDER') {
-  //       await this.prisma.rider.update({
-  //         where: { email },
-  //         data: { password: hashedPassword, otp: null, otpExpiry: null },
-  //       });
-  //     } else {
-  //       await this.prisma.driver.update({
-  //         where: { email },
-  //         data: { password: hashedPassword, otp: null, otpExpiry: null },
-  //       });
-  //     }
-
-  //     return { message: 'Password reset successfully.' };
-  //   } catch (error) {
-  //     console.error('Reset Password Error:', error);
-  //     throw new RpcException(error.message || 'Failed to reset password.');
-  //   }
-  // }
+      return { message: 'Password reset successfully.' };
+    } catch (error) {
+      console.error('Reset Password Error:', error);
+      throw new RpcException('Failed to reset password.');
+    }
+  }
 }

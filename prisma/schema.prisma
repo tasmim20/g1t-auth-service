@@ -50,7 +50,8 @@ model Driver {
 
 model Admin {
   id            Int             @id @default(autoincrement())
-  name          String
+  firstName String
+  lastName  String
   email         String          @unique
   password      String
   role          Role            @default(ADMIN)

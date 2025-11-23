@@ -10,7 +10,7 @@ export interface User {
 export interface JwtPayload {
   email: string;
   role: string;
-  sub?: string; // optional, for user ID
+  id?: number; // optional, for user ID
   iat?: number;
   exp?: number;
 }

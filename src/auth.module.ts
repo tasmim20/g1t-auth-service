@@ -1,33 +1,37 @@
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
-import { ClientsModule, Transport } from '@nestjs/microservices';
-
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PrismaService } from './prisma.service';
 import { EmailService } from './email/email.service';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
+import { ClientsModule, Transport } from '@nestjs/microservices';
+import { join } from 'path';
+import * as dotenv from 'dotenv';
+import { parseExpiration } from './common/utils/parse-expiration';
 
-const exp = process.env.JWT_EXPIRES_IN ?? '3600'; // seconds as string
-const expiresIn = Number.isNaN(Number(exp)) ? '30s' : Number(exp); // -> number | '1h'
+dotenv.config(); // load .env
+
+const userProtoPath = join(__dirname, '../proto/user.proto');
 
 @Module({
   imports: [
     PassportModule.register({ defaultStrategy: 'jwt', session: false }),
     JwtModule.register({
-      secret: process.env.JWT_ACCESS_SECRET,
-      signOptions: { expiresIn },
+      secret: process.env.JWT_ACCESS_SECRET || 'fallback_secret',
+      signOptions: {
+        expiresIn: parseExpiration(process.env.JWT_ACCESS_EXPIRATION),
+      },
     }),
-
-    // 👇 Add User Microservice Client Here
     ClientsModule.register([
       {
         name: 'USER_SERVICE',
-        transport: Transport.TCP,
+        transport: Transport.GRPC,
         options: {
-          host: process.env.USER_SERVICE_HOST,
-          port: parseInt(process.env.USER_SERVICE_PORT!),
+          package: 'user',
+          protoPath: userProtoPath,
+          url: `${process.env.USER_SERVICE_HOST}:${process.env.USER_SERVICE_PORT}`,
         },
       },
     ]),

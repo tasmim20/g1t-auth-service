@@ -1,93 +1,109 @@
+/* eslint-disable @typescript-eslint/no-unsafe-argument */
+/* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
-/* eslint-disable @typescript-eslint/no-unsafe-return */
-/* eslint-disable @typescript-eslint/no-unsafe-call */
 import { Controller } from '@nestjs/common';
-import { MessagePattern, Payload } from '@nestjs/microservices';
+import { GrpcMethod, RpcException } from '@nestjs/microservices';
 import { AuthService } from './auth.service';
 import { CreateDriverDto } from './dto/create-driver.dto';
-import { LoginDto } from './dto/login.dto';
 import { CreateRiderDto } from './dto/create-rider.dto';
-// import { Role } from './dto/role.enum';
+import { LoginDto } from './dto/login.dto';
 
-@Controller('auth')
+@Controller()
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
-  // Register a new user or driver
-  @MessagePattern({ cmd: 'register' })
-  async register(@Payload() data: CreateRiderDto | CreateDriverDto) {
-    return this.authService.register(data);
-  }
-  @MessagePattern({ cmd: 'confirm-registration' })
-  confirmRegistration(@Payload() token: string) {
-    return this.authService.confirmRegistration(token);
-  }
-
-  // Login user/driver
-  @MessagePattern({ cmd: 'login' })
-  async login(@Payload() data: LoginDto) {
-    return this.authService.login(data);
+  @GrpcMethod('AuthService', 'Register')
+  async register(data: CreateRiderDto | CreateDriverDto) {
+    const result = await this.authService.register(data);
+    return {
+      success: true,
+      message: result?.message ?? 'Registered successfully',
+    };
   }
 
-  @MessagePattern({ cmd: 'refresh' })
-  async refreshToken(@Payload() data: { refreshToken: string }) {
-    return this.authService.refreshToken(data.refreshToken);
+  @GrpcMethod('AuthService', 'ConfirmRegistration')
+  async confirmRegistration(data: { token: string }) {
+    const result = await this.authService.confirmRegistration(data.token);
+    return {
+      success: true,
+      message: result?.message ?? 'Confirmed successfully',
+    };
   }
 
-  @MessagePattern({ cmd: 'logout' })
-  async logout(@Payload() data: { refreshToken: string }) {
-    return this.authService.logout(data.refreshToken);
+  @GrpcMethod('AuthService', 'Login')
+  async login(data: LoginDto) {
+    const result = await this.authService.login(data);
+    return {
+      accessToken: result.accessToken ?? '',
+      refreshToken: result.refreshToken ?? '',
+      role: result.role ?? '',
+    };
   }
 
-  // @MessagePattern({ cmd: 'profile' })
-  // async getProfile(@Payload() data: { userId: number; role: Role }) {
-  //   const { userId, role } = data;
+  @GrpcMethod('AuthService', 'RefreshToken')
+  async refreshToken(data: { refreshToken: string }) {
+    const result = await this.authService.refreshToken(data.refreshToken);
+    return {
+      accessToken: result.accessToken ?? '',
+      refreshToken: result.refreshToken ?? '',
+    };
+  }
 
-  //   if (!userId || !role) {
-  //     throw new RpcException('userId and role are required');
-  //   }
+  @GrpcMethod('AuthService', 'Logout')
+  async logout(data: { refreshToken: string }) {
+    const result = await this.authService.logout(data.refreshToken);
+    return {
+      success: result?.status === 'success',
+      message: result?.message ?? 'Logged out',
+    };
+  }
 
-  //   // Call your service to fetch the profile based on userId and role
-  //   const profile = await this.authService.getProfile(userId, role);
-  //   return profile;
-  // }
+  // ------------------ Forgot Password ------------------
+  @GrpcMethod('AuthService', 'ForgotPassword')
+  async forgotPassword(data: { email: string }) {
+    console.log('Received forgot password request for:', data.email);
 
-  // // Get all riders
-  // @MessagePattern({ cmd: 'riders' })
-  // getAllRiders() {
-  //   return this.authService.getAllRiders();
-  // }
+    try {
+      // Call the service's forgotPassword method to handle OTP generation and email sending
+      const result = await this.authService.forgotPassword(data.email);
 
-  // // Get user by email
-  // @MessagePattern({ cmd: 'rider/email' })
-  // getRiderByEmail(@Payload() email: string) {
-  //   return this.authService.getRiderByEmail(email);
-  // }
+      // Return the response to the client
+      return {
+        success: true,
+        message: result?.message ?? 'OTP sent successfully.',
+      };
+    } catch (error) {
+      console.error('Error in ForgotPassword method:', error);
+      throw new RpcException(
+        error.message || 'Failed to process forgot password.',
+      );
+    }
+  }
 
-  // // Get all drivers
-  // @MessagePattern({ cmd: 'drivers' })
-  // getAllDrivers() {
-  //   return this.authService.getAllDrivers();
-  // }
+  // ------------------ Reset Password ------------------
+  @GrpcMethod('AuthService', 'ResetPassword')
+  async resetPassword(data: {
+    email: string;
+    otp: string;
+    newPassword: string;
+  }) {
+    console.log('Received reset password request for:', data.email);
 
-  // // Get driver by email
-  // @MessagePattern({ cmd: 'driver/email' })
-  // getDriverByEmail(@Payload() email: string) {
-  //   return this.authService.getDriverByEmail(email);
-  // }
-  // @MessagePattern({ cmd: 'forgot-password' })
-  // forgotPassword(@Payload() email: string) {
-  //   return this.authService.forgotPassword(email);
-  // }
+    try {
+      const result = await this.authService.resetPassword(
+        data.email,
+        data.otp,
+        data.newPassword,
+      );
 
-  // @MessagePattern({ cmd: 'reset-password' })
-  // resetPassword(
-  //   @Payload() body: { email: string; otp: string; newPassword: string },
-  // ) {
-  //   return this.authService.resetPassword(
-  //     body.email,
-  //     body.otp,
-  //     body.newPassword,
-  //   );
-  // }
+      // Return success response
+      return {
+        success: true,
+        message: result?.message ?? 'Password reset successfully.',
+      };
+    } catch (error) {
+      console.error('Error in ResetPassword method:', error);
+      throw new RpcException(error.message || 'Failed to reset password.');
+    }
+  }
 }

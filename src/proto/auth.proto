@@ -1,0 +1,91 @@
+syntax = "proto3";
+
+package auth;
+
+// AuthService RPCs
+service AuthService {
+  rpc Register(RegisterRequest) returns (RegisterResponse);
+  rpc ConfirmRegistration(ConfirmRegistrationRequest) returns (ConfirmRegistrationResponse);
+  rpc Login(LoginRequest) returns (LoginResponse);
+  rpc RefreshToken(RefreshTokenRequest) returns (RefreshTokenResponse);
+  rpc Logout(LogoutRequest) returns (LogoutResponse);
+  rpc ForgotPassword(EmailRequest) returns (GenericResponse);
+  rpc ResetPassword(ResetPasswordRequest) returns (GenericResponse);
+}
+
+// ---------------------------
+// Requests
+// ---------------------------
+message RegisterRequest {
+  string firstName = 1;       // Required
+  string lastName = 2;        // Required
+  string email = 3;           // Required and unique
+  string mobileNumber = 4;    // Required and unique
+  string password = 5;        // Required
+  string role = 6;            // Required, defaults to "RIDER"
+  bool isConfirmed = 7;       // Optional, defaults to false
+  string otp = 8;             // Optional
+  string otpExpiry = 9;       // Optional
+  string drivingLicense = 10; 
+}
+
+message ConfirmRegistrationRequest {
+  string token = 1;           // Required
+}
+
+message LoginRequest {
+  string email = 1;           // Required
+  string password = 2;        // Required
+}
+
+message RefreshTokenRequest {
+  string refreshToken = 1;    // Required
+}
+
+message LogoutRequest {
+  string refreshToken = 1;    // Required
+}
+
+message EmailRequest {
+  string email = 1;           // Required
+}
+
+message ResetPasswordRequest {
+  string email = 1;           // Required
+  string otp = 2;             // Required
+  string newPassword = 3;     // Required
+}
+
+// ---------------------------
+// Responses
+// ---------------------------
+message RegisterResponse {
+  bool success = 1;           // Success status
+  string message = 2;         // Response message
+}
+
+message ConfirmRegistrationResponse {
+  bool success = 1;           // Success status
+  string message = 2;         // Response message
+}
+
+message LoginResponse {
+  string accessToken = 1;     // Access token for the user
+  string refreshToken = 2;    // Refresh token for the user
+  string role = 3;            // User role (RIDER, DRIVER, ADMIN)
+}
+
+message RefreshTokenResponse {
+  string accessToken = 1;     // New access token
+  string refreshToken = 2;    // New refresh token
+}
+
+message LogoutResponse {
+  bool success = 1;           // Success status
+  string message = 2;         // Response message
+}
+
+message GenericResponse {
+  bool success = 1;           // Success status
+  string message = 2;         // Response message
+}
