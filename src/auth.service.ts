@@ -19,10 +19,10 @@ import { Role } from './dto/role.enum';
 import { RpcException } from '@nestjs/microservices';
 import type { ClientGrpc } from '@nestjs/microservices';
 import { firstValueFrom, Observable } from 'rxjs';
-import { EmailService } from './email/email.service';
 import { CreateRiderDto } from './dto/create-rider.dto';
 import { RefreshToken } from './common/user.interface';
 import { parseExpiration } from './common/utils/parse-expiration';
+import ms from 'ms';
 
 interface AuthenticatedRequest extends Request {
   cookies: Record<string, string>;
@@ -34,25 +34,41 @@ interface UserService {
     role: string; // 'RIDER' | 'DRIVER' | 'ADMIN'
     firstName: string;
     lastName: string;
+    mobileNumber: string;
     profilePhoto?: string;
     bio?: string;
     address?: string;
   }): Observable<{ success: boolean; message: string; profileId: number }>;
 }
+interface EmailService {
+  SendConfirmationEmail(data: {
+    to: string;
+    token: string;
+  }): Observable<{ success: boolean; message: string }>;
+  SendOTPEmail(data: {
+    to: string;
+    otp: string;
+  }): Observable<{ success: boolean; message: string }>;
+}
 @Injectable()
 export class AuthService {
   private userService: UserService;
+  private emailService: EmailService;
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
-    private readonly emailService: EmailService,
     @Inject('USER_SERVICE') private readonly userClient: ClientGrpc,
+    @Inject('EMAIL_SERVICE') private readonly emailClient: ClientGrpc,
   ) {}
   onModuleInit() {
     try {
       this.userService = this.userClient.getService<UserService>('UserService');
       console.log('AuthService: userService initialized');
+
+      this.emailService =
+        this.emailClient.getService<EmailService>('EmailService');
+      console.log('AuthService: emailGrpcService initialized');
     } catch (err) {
       console.error('AuthService.onModuleInit error:', err);
     }
@@ -156,7 +172,9 @@ export class AuthService {
       console.log('Generated email confirmation token:', token);
 
       // Send confirmation email
-      await this.emailService.sendConfirmationEmail(email, token);
+      await firstValueFrom(
+        this.emailService.SendConfirmationEmail({ to: email, token }),
+      );
 
       // Return success response
       return {
@@ -214,6 +232,18 @@ export class AuthService {
           expiresIn: parseExpiration(process.env.JWT_ACCESS_EXPIRATION),
         },
       );
+
+      // Before creating a new refresh token:
+      // await this.prisma.refreshToken.updateMany({
+      //   where: {
+      //     riderId: user.role === Role.RIDER ? user.id : null,
+      //     driverId: user.role === Role.DRIVER ? user.id : null,
+      //     adminId: user.role === Role.ADMIN ? user.id : null,
+      //     isUsed: false,
+      //     isRevoked: false,
+      //   },
+      //   data: { isUsed: true, isRevoked: true },
+      // });
 
       const refreshToken = this.jwtService.sign(
         { email: user.email, role: user.role, id: user.id, type: 'refresh' },
@@ -321,7 +351,17 @@ export class AuthService {
         secret: process.env.JWT_ACCESS_SECRET,
         expiresIn: parseExpiration(process.env.JWT_ACCESS_EXPIRATION),
       },
-    );
+    ); // Invalidate all old refresh tokens BEFORE creating a new one
+    // await this.prisma.refreshToken.updateMany({
+    //   where: {
+    //     riderId: payload.role === Role.RIDER ? payload.id : null,
+    //     driverId: payload.role === Role.DRIVER ? payload.id : null,
+    //     adminId: payload.role === Role.ADMIN ? payload.id : null,
+    //     isUsed: false,
+    //     isRevoked: false,
+    //   },
+    //   data: { isUsed: true, isRevoked: true },
+    // });
 
     // Generate new refresh token (raw)
     const newRefreshToken = this.jwtService.sign(
@@ -340,6 +380,11 @@ export class AuthService {
     // Hash the refresh token before storing
     const hashedToken = await argon2.hash(newRefreshToken);
 
+    const refreshExpiresMs = ms(
+      parseExpiration(process.env.JWT_REFRESH_EXPIRATION),
+    );
+    const expiresAt = new Date(Date.now() + refreshExpiresMs);
+
     await this.prisma.refreshToken.create({
       data: {
         token: hashedToken,
@@ -348,7 +393,7 @@ export class AuthService {
         adminId: payload.role === Role.ADMIN ? payload.id : null,
         isUsed: false,
         isRevoked: false,
-        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        expiresAt,
       },
     });
 
@@ -365,7 +410,7 @@ export class AuthService {
         return { status: 'success', message: 'Logged out' };
       }
 
-      // Decode token
+      // Decode token to get user info
       let payload: any;
       try {
         payload = await this.jwtService.verifyAsync(refreshToken, {
@@ -376,32 +421,20 @@ export class AuthService {
         return { status: 'success', message: 'Logged out' };
       }
 
-      // Find active tokens for user
-      const tokens = await this.prisma.refreshToken.findMany({
+      // Revoke all active refresh tokens for this user
+      await this.prisma.refreshToken.updateMany({
         where: {
           riderId: payload.role === Role.RIDER ? payload.id : null,
           driverId: payload.role === Role.DRIVER ? payload.id : null,
           adminId: payload.role === Role.ADMIN ? payload.id : null,
           isUsed: false,
           isRevoked: false,
-          expiresAt: { gt: new Date() },
+        },
+        data: {
+          isUsed: true,
+          isRevoked: true,
         },
       });
-
-      // Revoke matching token
-      for (const t of tokens) {
-        try {
-          if (await argon2.verify(t.token, refreshToken)) {
-            await this.prisma.refreshToken.update({
-              where: { id: t.id },
-              data: { isUsed: true, isRevoked: true },
-            });
-            break;
-          }
-        } catch {
-          continue; // skip invalid/corrupted hashes
-        }
-      }
 
       return { status: 'success', message: 'Logged out' };
     } catch (err) {
@@ -483,6 +516,7 @@ export class AuthService {
             firstName: updatedAccount.firstName ?? updatedAccount.name ?? '',
             lastName: updatedAccount.lastName ?? '',
             profilePhoto: updatedAccount.profilePhoto ?? '',
+            mobileNumber: updatedAccount.mobileNumber ?? '',
             bio: updatedAccount.bio ?? '',
             address: updatedAccount.address ?? '',
           };
@@ -543,7 +577,7 @@ export class AuthService {
       }
 
       // Send OTP email
-      await this.emailService.sendOTPEmail(email, otp);
+      await firstValueFrom(this.emailService.SendOTPEmail({ to: email, otp }));
 
       return { message: 'OTP sent to your email. It is valid for 10 minutes.' };
     } catch (error) {
@@ -592,6 +626,68 @@ export class AuthService {
     } catch (error) {
       console.error('Reset Password Error:', error);
       throw new RpcException('Failed to reset password.');
+    }
+  }
+  private async findUserByEmail(email: string) {
+    const rider = await this.prisma.rider.findUnique({ where: { email } });
+    if (rider) return { ...rider, type: 'RIDER' };
+
+    const driver = await this.prisma.driver.findUnique({ where: { email } });
+    if (driver) return { ...driver, type: 'DRIVER' };
+
+    const admin = await this.prisma.admin.findUnique({ where: { email } });
+    if (admin) return { ...admin, type: 'ADMIN' };
+
+    return null;
+  }
+
+  async resetPasswordWithoutOtp(
+    email: string,
+    currentPassword: string,
+    newPassword: string,
+  ) {
+    try {
+      // Find the account (Rider, Driver, Admin)
+      const account =
+        (await this.prisma.rider.findUnique({ where: { email } })) ||
+        (await this.prisma.driver.findUnique({ where: { email } })) ||
+        (await this.prisma.admin.findUnique({ where: { email } }));
+
+      if (!account) throw new RpcException('Account not found.');
+
+      // Check current password
+      const isPasswordValid = await bcrypt.compare(
+        currentPassword,
+        account.password,
+      );
+      if (!isPasswordValid)
+        throw new RpcException('Current password is incorrect.');
+
+      // Hash the new password
+      const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+      // Update password
+      if (account.role === 'RIDER') {
+        await this.prisma.rider.update({
+          where: { email },
+          data: { password: hashedPassword },
+        });
+      } else if (account.role === 'DRIVER') {
+        await this.prisma.driver.update({
+          where: { email },
+          data: { password: hashedPassword },
+        });
+      } else if (account.role === 'ADMIN') {
+        await this.prisma.admin.update({
+          where: { email },
+          data: { password: hashedPassword },
+        });
+      }
+
+      return { message: 'Password updated successfully.' };
+    } catch (error) {
+      console.error('Reset Password Without OTP Error:', error);
+      throw new RpcException(error.message || 'Failed to reset password.');
     }
   }
 }

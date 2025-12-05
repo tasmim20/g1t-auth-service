@@ -1,3 +1,4 @@
+/* eslint-disable prettier/prettier */
 /* eslint-disable @typescript-eslint/no-unsafe-argument */
 /* eslint-disable @typescript-eslint/no-unsafe-member-access */
 /* eslint-disable @typescript-eslint/no-unsafe-assignment */
@@ -104,6 +105,29 @@ export class AuthController {
     } catch (error) {
       console.error('Error in ResetPassword method:', error);
       throw new RpcException(error.message || 'Failed to reset password.');
+    }
+  }
+  @GrpcMethod('AuthService', 'ResetPasswordWithoutOtp')
+  async resetPasswordWithoutOtp(data: {
+    email: string;
+    currentPassword: string;
+    newPassword: string;
+  }) {
+    console.log('Received reset password WITHOUT OTP request for:', data.email);
+
+    try {
+      const result = await this.authService.resetPasswordWithoutOtp(
+        data.email,
+        data.currentPassword,
+        data.newPassword,
+      );
+      return {
+        success: true,
+        message: result?.message ?? 'Password updated successfully.',
+      };
+    } catch (error) {
+      console.error('Error in ResetPasswordWithoutOtp method:', error);
+      throw new RpcException(error.message || 'Failed to update password.');
     }
   }
 }

@@ -4,7 +4,6 @@ import { JwtModule } from '@nestjs/jwt';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PrismaService } from './prisma.service';
-import { EmailService } from './email/email.service';
 import { JwtStrategy } from './common/strategies/jwt.strategy';
 import { ClientsModule, Transport } from '@nestjs/microservices';
 import { join } from 'path';
@@ -14,6 +13,7 @@ import { parseExpiration } from './common/utils/parse-expiration';
 dotenv.config(); // load .env
 
 const userProtoPath = join(__dirname, '../proto/user.proto');
+const emailProtoPath = join(__dirname, '../proto/email.proto');
 
 @Module({
   imports: [
@@ -34,9 +34,18 @@ const userProtoPath = join(__dirname, '../proto/user.proto');
           url: `${process.env.USER_SERVICE_HOST}:${process.env.USER_SERVICE_PORT}`,
         },
       },
+      {
+        name: 'EMAIL_SERVICE',
+        transport: Transport.GRPC,
+        options: {
+          package: 'email',
+          protoPath: emailProtoPath,
+          url: `${process.env.EMAIL_SERVICE_HOST}:${process.env.EMAIL_SERVICE_PORT}`,
+        },
+      },
     ]),
   ],
   controllers: [AuthController],
-  providers: [AuthService, PrismaService, EmailService, JwtStrategy],
+  providers: [AuthService, PrismaService, JwtStrategy],
 })
 export class AuthModule {}

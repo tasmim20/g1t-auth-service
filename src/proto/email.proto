@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package email;
+
+service EmailService {
+  // Send email confirmation link
+  rpc SendConfirmationEmail (ConfirmationEmailRequest) returns (EmailResponse);
+
+  // Send OTP for password reset
+  rpc SendOTPEmail (OTPEmailRequest) returns (EmailResponse);
+}
+
+// Request for sending confirmation email
+message ConfirmationEmailRequest {
+  string to = 1;     // recipient email
+  string token = 2;  // email confirmation token
+}
+
+// Request for sending OTP email
+message OTPEmailRequest {
+  string to = 1;     // recipient email
+  string otp = 2;    // OTP code
+}
+
+// Generic email response
+message EmailResponse {
+  bool success = 1;    // true if email sent successfully
+  string message = 2;  // status message
+}
