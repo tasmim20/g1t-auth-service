@@ -6,6 +6,7 @@ import {
   IsNotEmpty,
   IsMobilePhone,
   IsEnum,
+  IsOptional,
 } from 'class-validator';
 import { Role } from './role.enum';
 
@@ -30,4 +31,7 @@ export class CreateRiderDto {
 
   @IsEnum(Role)
   role: Role; // 'user' or 'driver'
+  @IsOptional()
+  @IsString()
+  profilePhoto?: string;
 }

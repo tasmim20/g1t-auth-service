@@ -38,8 +38,10 @@ interface UserService {
     profilePhoto?: string;
     bio?: string;
     address?: string;
+    drivingLicense?: string;
   }): Observable<{ success: boolean; message: string; profileId: number }>;
 }
+
 interface EmailService {
   SendConfirmationEmail(data: {
     to: string;
@@ -76,8 +78,15 @@ export class AuthService {
 
   async register(createUserDto: CreateRiderDto | CreateDriverDto) {
     try {
-      const { email, password, role, firstName, lastName, mobileNumber } =
-        createUserDto;
+      const {
+        email,
+        password,
+        role,
+        firstName,
+        lastName,
+        mobileNumber,
+        profilePhoto,
+      } = createUserDto;
 
       // Validate required fields
       if (
@@ -111,6 +120,7 @@ export class AuthService {
             lastName,
             mobileNumber,
             role,
+            profilePhoto: profilePhoto || null,
           },
         });
 
@@ -135,6 +145,7 @@ export class AuthService {
             mobileNumber: driverDto.mobileNumber,
             role: driverDto.role,
             drivingLicense: driverDto.drivingLicense,
+            profilePhoto: profilePhoto || null,
           },
         });
 
@@ -152,6 +163,7 @@ export class AuthService {
             firstName,
             lastName, // Admin model has 'name' instead of firstName/lastName
             role,
+            profilePhoto: profilePhoto || null,
           },
         });
 
@@ -507,6 +519,7 @@ export class AuthService {
             role: updatedAccount.role,
             firstName: updatedAccount.firstName ?? updatedAccount.name ?? '',
             lastName: updatedAccount.lastName ?? '',
+            drivingLicense: updatedAccount.drivingLicense ?? '',
           });
 
           const payload = {
@@ -519,6 +532,9 @@ export class AuthService {
             mobileNumber: updatedAccount.mobileNumber ?? '',
             bio: updatedAccount.bio ?? '',
             address: updatedAccount.address ?? '',
+            ...(updatedAccount.role === 'DRIVER' && {
+              drivingLicense: updatedAccount.drivingLicense ?? '',
+            }),
           };
 
           const result = await firstValueFrom(

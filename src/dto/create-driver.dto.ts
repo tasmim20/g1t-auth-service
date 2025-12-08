@@ -5,6 +5,7 @@ import {
   IsNotEmpty,
   IsMobilePhone,
   IsEnum,
+  IsOptional,
 } from 'class-validator';
 import { Role } from './role.enum'; // Import the Role Enum (if you use one)
 import { CreateRiderDto } from './create-rider.dto';
@@ -34,6 +35,9 @@ export class CreateDriverDto {
 
   @IsEnum(Role) // Using @IsEnum for the 'role' field
   role: Role; // Validate the role field using the Role Enum
+  @IsOptional()
+  @IsString()
+  profilePhoto?: string;
 }
 
 // In create-driver.dto.ts or in a separate utils file

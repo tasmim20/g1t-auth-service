@@ -21,6 +21,7 @@ message CreateProfileRequest {
   string bio        = 7;
   string address    = 8;
   string mobileNumber = 9;
+  string drivingLicense = 10; 
 }
 
 
@@ -50,6 +51,7 @@ message GetProfileResponse {
   string address    = 8;
   string role       = 9;
   string mobileNumber = 10;
+  string drivingLicense = 11; 
 }
 // Request for updating profile
 message UpdateProfileRequest {
@@ -62,6 +64,7 @@ message UpdateProfileRequest {
   string address = 7;
   string mobileNumber = 8;
 }
+
 
 // Request for deleting profile
 message DeleteProfileRequest {

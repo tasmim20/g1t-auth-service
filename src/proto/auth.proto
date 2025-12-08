@@ -28,6 +28,7 @@ message RegisterRequest {
   string otp = 8;             // Optional
   string otpExpiry = 9;       // Optional
   string drivingLicense = 10; 
+  string profilePhoto = 11;
 }
 
 message ConfirmRegistrationRequest {
